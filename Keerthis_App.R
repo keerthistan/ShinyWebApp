@@ -13,6 +13,111 @@ f_im <- "data/im1.csv"
 ar1 <- read_csv(f_ar, col_names = FALSE)
 im1 <- read_csv(f_im, col_names = FALSE)
 
+# inserting the rest of my bandpower processing code
+# defining the frequency ranges of the brainwave bands
+frequencyBands <- list(
+  Delta = c(0.3, 4),
+  Theta = c(4, 8),
+  Alpha = c(8, 15),
+  Beta = c(15, 30),
+  Gamma = c(30, 59),
+  Lower_HighGamma = c(61, 119),
+  Upper_HighGamma = c(121, 250)
+)
+
+Fs <- 1000 # a priori values for sampling frequency
+
+# creating a bandpower function
+bandpower_funct <- function(signal, freq_low, freq_high, Fs) {
+  # how many data points are in the signal?
+  n <- length(signal)
+  # using the built-in fft function in R
+  fft_res <- fft(signal)
+  # data indices should correspond to respective frequency value
+  # sampling frequency, Fs, is split into, n, evenly spaced 'bins'--> (Fs/n)
+  freq_val <- (0:(n-1)) * (Fs / n)
+  # calculate power spectral density (PSD)
+  psd <- abs(fft_res)^2 / n
+  # which() to pick out indices for values that fit the criteria
+  # the criteria: frequencies between the low and high bounds for the given band
+  band_indices <- which(freq_val >= freq_low & freq_val <= freq_high)
+  # CALCULATE BANDPOWER
+  # sum as the PSD values for the matrices then divide by the number of data points
+  bandpower <- sum(psd[band_indices]) / length(band_indices)
+  return(bandpower)
+}
+
+# STORING ARTICULATION BANDPOWERS
+# store bandpower values for each band into a list
+art1_bandpowers <- list()
+
+# for each iteration/band in the frequencyBands list created before
+for(band in names(frequencyBands)) {
+  band_low <- frequencyBands[[band]][1] # first value is lower bound for respective band
+  band_high <- frequencyBands[[band]][2] # second value is upper bound
+  
+  # creating a matrix to store the resulting bandpower values
+  # as many rows as there are sensors/rows in ar1, and 1 column --> this goes for each pass(band)
+  art1_band_matrix <- matrix(nrow=nrow(ar1), ncol=1)
+  
+  # for each sensor pass all the way through the end of the rows(the last sensor in ar1)
+  for(sensor_idx in 1:nrow(ar1)) {
+    # apply the bandpower function and assign to the band_matrix
+    art1_band_matrix[sensor_idx, 1] <- bandpower_funct(as.numeric(ar1[sensor_idx, ]), band_low, band_high, Fs)
+  }
+  
+  # now store all the bandpower values
+  art1_bandpowers[[band]] <- art1_band_matrix
+}
+
+# STORING IMAGINATION BANDPOWERS
+# store bandpower values for each band into a list
+im1_bandpowers <- list()
+
+# for each iteration/band in the frequencyBands list created before
+for(band in names(frequencyBands)) {
+  band_low <- frequencyBands[[band]][1] # first value is lower bound for respective band
+  band_high <- frequencyBands[[band]][2] # second value is upper bound
+  
+  # creating a matrix to store the resulting bandpower values
+  # as many rows as there are sensors/rows in im1, and 1 column --> this goes for each pass(band)
+  im1_band_matrix <- matrix(nrow=nrow(im1), ncol=1)
+  
+  # for each sensor pass all the way through the end of the rows(the last sensor in im1)
+  for(sensor_idx in 1:nrow(im1)) {
+    # apply the bandpower function and assign to the band_matrix
+    im1_band_matrix[sensor_idx, 1] <- bandpower_funct(as.numeric(im1[sensor_idx, ]), band_low, band_high, Fs)
+  }
+  
+  # now store all the bandpower values
+  im1_bandpowers[[band]] <- im1_band_matrix
+}
+
+
+# RESHAPING DATA INTO LONG FORMAT
+# creating a function to convert the matrices into data frames
+# input = bandpower file (art1 or im1) and filename 
+prepare_bandpower_data <- function(bandpowerfile, filetitle) { 
+  band_data <- map_df(names(bandpowerfile), function(band) {
+    data_frame(
+      Sensor = 1:nrow(bandpowerfile[[band]]),
+      Bandpower = as.vector(bandpowerfile[[band]]),
+      Band = band,
+      File_title = filetitle
+    )
+  })
+  return(band_data)
+}
+
+# Prepare data for both conditions
+art1_data <- prepare_bandpower_data(art1_bandpowers, "Articulation")
+im1_data <- prepare_bandpower_data(im1_bandpowers, "Imagination")
+
+# COMBINING ART/IM DATA
+# combined_data has the new articulation AND imaginationd data in the long format
+combined_data <- bind_rows(art1_data, im1_data)
+
+
 
 # defining the ui
 ui <- fluidPage(
@@ -35,7 +140,8 @@ ui <- fluidPage(
       h4("Loading in MEG Data from a Speaker Articulating 1 Phrase"), 
       h5("Select an option on the left panel!"),
       htmlOutput("more_details"),  # display text based on selectInput choice
-      htmlOutput("meg_details")  # display MEG model details when button is clicked, htmlOutput allows <br> to be interpreted as break lines
+      htmlOutput("meg_details"),  # display MEG model details when button is clicked, htmlOutput allows <br> to be interpreted as break lines
+      uiOutput("plot_output")
     )
   )
 )
@@ -43,110 +149,41 @@ ui <- fluidPage(
 
 # defining the server logic 
 server <- function(input, output) {
-  # inserting the rest of my bandpower plotting code, for the visualization portion in this website
+
   
-  # defining the frequency ranges of the brainwave bands
-  frequencyBands <- list(
-    Delta = c(0.3, 4),
-    Theta = c(4, 8),
-    Alpha = c(8, 15),
-    Beta = c(15, 30),
-    Gamma = c(30, 59),
-    Lower_HighGamma = c(61, 119),
-    Upper_HighGamma = c(121, 250)
-  )
-  
-  Fs <- 1000 # a priori values for sampling frequency
-  
-  # creating a bandpower function
-  bandpower_funct <- function(signal, freq_low, freq_high, Fs) {
-    # how many data points are in the signal?
-    n <- length(signal)
-    # using the built-in fft function in R
-    fft_res <- fft(signal)
-    # data indices should correspond to respective frequency value
-    # sampling frequency, Fs, is split into, n, evenly spaced 'bins'--> (Fs/n)
-    freq_val <- (0:(n-1)) * (Fs / n)
-    # calculate power spectral density (PSD)
-    psd <- abs(fft_res)^2 / n
-    # which() to pick out indices for values that fit the criteria
-    # the criteria: frequencies between the low and high bounds for the given band
-    band_indices <- which(freq_val >= freq_low & freq_val <= freq_high)
-    # CALCULATE BANDPOWER
-    # sum as the PSD values for the matrices then divide by the number of data points
-    bandpower <- sum(psd[band_indices]) / length(band_indices)
-    return(bandpower)
-  }
-  
-  # STORING ARTICULATION BANDPOWERS
-  # store bandpower values for each band into a list
-  art1_bandpowers <- list()
-  
-  # for each iteration/band in the frequencyBands list created before
-  for(band in names(frequencyBands)) {
-    band_low <- frequencyBands[[band]][1] # first value is lower bound for respective band
-    band_high <- frequencyBands[[band]][2] # second value is upper bound
-    
-    # creating a matrix to store the resulting bandpower values
-    # as many rows as there are sensors/rows in ar1, and 1 column --> this goes for each pass(band)
-    art1_band_matrix <- matrix(nrow=nrow(ar1), ncol=1)
-    
-    # for each sensor pass all the way through the end of the rows(the last sensor in ar1)
-    for(sensor_idx in 1:nrow(ar1)) {
-      # apply the bandpower function and assign to the band_matrix
-      art1_band_matrix[sensor_idx, 1] <- bandpower_funct(as.numeric(ar1[sensor_idx, ]), band_low, band_high, Fs)
+  # Prepare and render plots when 'Project Visualization' is selected
+  observeEvent(input$more_details, {
+    if (input$more_details == "Project Visualization") {
+      
+      combined_data <- bind_rows(art1_data, im1_data)
+      
+      # Generate plots for each band
+      output$plot_output <- renderUI({
+        plot_list <- lapply(unique(combined_data$Band), function(band) {
+          plot_name <- paste("plot", band, sep = "_")
+          plotOutput(plot_name)
+        })
+        
+        # Assign plotting to each output dynamically
+        lapply(seq_along(plot_list), function(i) {
+          output[[names(plot_list)[i]]] <- renderPlot({
+            band <- gsub("plot_", "", names(plot_list)[i])
+            ggplot(data = combined_data %>% filter(Band == band), 
+                   aes(x = File_title, y = Bandpower, color = File_title)) +
+              geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), size = 3) +
+              labs(title = paste("Bandpower Values for", band, "Band"),
+                   x = "",
+                   y = "Bandpower") +
+              scale_color_manual(values = c("Articulation" = "blue", "Imagination" = "red")) +
+              theme_minimal() +
+              theme(legend.position = "none")
+          })
+        })
+        
+        do.call(tagList, plot_list)
+      })
     }
-    
-    # now store all the bandpower values
-    art1_bandpowers[[band]] <- art1_band_matrix
-  }
-  
-  # STORING IMAGINATION BANDPOWERS
-  # store bandpower values for each band into a list
-  im1_bandpowers <- list()
-  
-  # for each iteration/band in the frequencyBands list created before
-  for(band in names(frequencyBands)) {
-    band_low <- frequencyBands[[band]][1] # first value is lower bound for respective band
-    band_high <- frequencyBands[[band]][2] # second value is upper bound
-    
-    # creating a matrix to store the resulting bandpower values
-    # as many rows as there are sensors/rows in im1, and 1 column --> this goes for each pass(band)
-    im1_band_matrix <- matrix(nrow=nrow(im1), ncol=1)
-    
-    # for each sensor pass all the way through the end of the rows(the last sensor in im1)
-    for(sensor_idx in 1:nrow(im1)) {
-      # apply the bandpower function and assign to the band_matrix
-      im1_band_matrix[sensor_idx, 1] <- bandpower_funct(as.numeric(im1[sensor_idx, ]), band_low, band_high, Fs)
-    }
-    
-    # now store all the bandpower values
-    im1_bandpowers[[band]] <- im1_band_matrix
-  }
-  
-  
-  # RESHAPING DATA INTO LONG FORMAT
-  # creating a function to convert the matrices into data frames
-  # input = bandpower file (art1 or im1) and filename 
-  prepare_bandpower_data <- function(bandpowerfile, filetitle) { 
-    band_data <- map_df(names(bandpowerfile), function(band) {
-      data_frame(
-        Sensor = 1:nrow(bandpowerfile[[band]]),
-        Bandpower = as.vector(bandpowerfile[[band]]),
-        Band = band,
-        File_title = filetitle
-      )
-    })
-    return(band_data)
-  }
-  
-  # Prepare data for both conditions
-  art1_data <- prepare_bandpower_data(art1_bandpowers, "Articulation")
-  im1_data <- prepare_bandpower_data(im1_bandpowers, "Imagination")
-  
-  # COMBINING ART/IM DATA
-  # combined_data has the new articulation AND imaginationd data in the long format
-  combined_data <- bind_rows(art1_data, im1_data)
+  })
   
   
   
