@@ -99,7 +99,7 @@ for(band in names(frequencyBands)) {
 # input = bandpower file (art1 or im1) and filename 
 prepare_bandpower_data <- function(bandpowerfile, filetitle) { 
   band_data <- map_df(names(bandpowerfile), function(band) {
-    data_frame(
+    tibble(
       Sensor = 1:nrow(bandpowerfile[[band]]),
       Bandpower = as.vector(bandpowerfile[[band]]),
       Band = band,
@@ -151,58 +151,55 @@ ui <- fluidPage(
 server <- function(input, output) {
 
   
-  # Prepare and render plots when 'Project Visualization' is selected
+  # when 'Project Visualization' is selected...
   observeEvent(input$more_details, {
     if (input$more_details == "Project Visualization") {
-      
-      combined_data <- bind_rows(art1_data, im1_data)
-      
-      # Generate plots for each band
-      output$plot_output <- renderUI({
-        plot_list <- lapply(unique(combined_data$Band), function(band) {
-          plot_name <- paste("plot", band, sep = "_")
-          plotOutput(plot_name)
-        })
-        
-        # Assign plotting to each output dynamically
-        lapply(seq_along(plot_list), function(i) {
-          output[[names(plot_list)[i]]] <- renderPlot({
-            band <- gsub("plot_", "", names(plot_list)[i])
-            ggplot(data = combined_data %>% filter(Band == band), 
-                   aes(x = File_title, y = Bandpower, color = File_title)) +
-              geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), size = 3) +
-              labs(title = paste("Bandpower Values for", band, "Band"),
-                   x = "",
-                   y = "Bandpower") +
-              scale_color_manual(values = c("Articulation" = "blue", "Imagination" = "red")) +
-              theme_minimal() +
-              theme(legend.position = "none")
+          combined_data <- bind_rows(art1_data, im1_data)
+          
+          # storing the plot objects in a list
+          plot_outputs <- list()
+          
+          # generate plots for each band
+          for (band in unique(combined_data$Band)) {
+            local({
+              local_band <- band  # localize the loop variable
+              plot_id <- paste("plot", local_band, sep = "_")
+              
+              # create the plot output
+              output[[plot_id]] <- renderPlot({
+                ggplot(data = combined_data %>% filter(Band == local_band), 
+                       aes(x = File_title, y = Bandpower, color = File_title)) +
+                  geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), size = 3) +
+                  labs(title = paste("Bandpower Values for", local_band, "Band"),
+                       x = "",
+                       y = "Bandpower") +
+                  scale_color_manual(values = c("Articulation" = "blue", "Imagination" = "red")) +
+                  theme_minimal() +
+                  theme(legend.position = "none")
+              })
+              
+              # store the plot_id for UI rendering
+              plot_outputs[[plot_id]] <- plotOutput(plot_id)
+              
+            })
+          }
+          
+          
+          output$plot_output <- renderUI({
+            do.call(tagLists, plot_outputs)
           })
-        })
-        
-        do.call(tagList, plot_list)
+        }
       })
-    }
-  })
-  
-  
-  
+      
+
   # render the selected details from dropdown menu 
   # using the HTML formatting for line breaks
   output$more_details <- renderUI({
     if (input$more_details == "Project Setup/Details") { 
       HTML("In my research, I studied how brain activity varies for different modalities of speech/language; particularly imagined/covert speech versus articulated/overt speech.<br/><br/>
             This web page is dedicated to visualizing brain waves bandpower differences between Articulated and Imagined across all 204 gradiometer sensors, from an MEG machine.<br/><br/>
-            By clicking on <strong>\"Project Visualization\"</strong> you will be able to see scatter plots comparing articulation and imagination bandpower values for each brainwave band. The bands are defined by the frequency ranges shown below:<br/>
-            <ul>
-              <li>Delta = 0.3 - 4 Hz</li>
-              <li>Theta = 4 - 8 Hz</li>
-              <li>Alpha = 8 - 15 Hz</li>
-              <li>Beta = 15 - 30 Hz</li>
-              <li>Gamma = 30 - 59 Hz</li>
-              <li>Lower High Gamma = 61 - 119 Hz</li>
-              <li>Upper HighGamma = 121 - 250 Hz</li>
-            </ul>")
+            By clicking on <strong>\"Project Visualization\"</strong> you will be able to see scatter plots comparing articulation and imagination bandpower values for each brainwave band.")
+      
     } else if (input$more_details == "Project Visualization") {
       HTML("Visualization details: <br><br>The bands are defined by the frequency ranges shown below:<br/>
             <ul>
@@ -214,6 +211,8 @@ server <- function(input, output) {
               <li>Lower High Gamma = 61 - 119 Hz</li>
               <li>Upper HighGamma = 121 - 250 Hz</li>
             </ul>") # <ul> : unordered list, essentially bullet points, <li> helps me indicate specific lines of the lists
+      
+      
     } else {
       paste0("You have selected... ", input$more_details)
     }
@@ -221,7 +220,7 @@ server <- function(input, output) {
   
   # creating a "reactive event" for displaying the MEG model details once the action button is clicked
   meg_model_details <- eventReactive(input$submit, {
-    HTML("ELEKTA NEUROMAG TRIUX<br>306 channels - 204 gradiometers, 102 magnetometers<br>MEG machine housed in Magnetically Shielded Room (MSR)")
+    HTML("<br><br></strong>ELEKTA NEUROMAG TRIUX<br>306 channels - 204 gradiometers, 102 magnetometers<br>MEG machine housed in Magnetically Shielded Room (MSR)</strong>")
   })
   
   
